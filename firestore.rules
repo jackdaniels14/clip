@@ -1,0 +1,102 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own data, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Users can create their own account
+      allow create: if isOwner(userId);
+
+      // Users can update their own data (except role)
+      allow update: if isOwner(userId) &&
+                      !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+
+      // Admins can update any user
+      allow update: if isAdmin();
+
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+
+    // Cameras collection - Admin only
+    match /cameras/{cameraId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Sessions collection
+    match /sessions/{sessionId} {
+      // Users can read their own sessions, admins can read all
+      allow read: if isAdmin() ||
+                    (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Only admins can create/update/delete sessions
+      allow write: if isAdmin();
+    }
+
+    // Clips collection
+    match /clips/{clipId} {
+      // Users can read their own clips, admins can read all
+      allow read: if isAdmin() ||
+                    (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Admins can create/update clips
+      allow create, update: if isAdmin();
+
+      // Users can update only the status field (for marking favorites)
+      allow update: if isSignedIn() &&
+                      resource.data.userId == request.auth.uid &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favorite']);
+
+      // Only admins can delete
+      allow delete: if isAdmin();
+    }
+
+    // Purchases collection
+    match /purchases/{purchaseId} {
+      // Users can read their own purchases, admins can read all
+      allow read: if isAdmin() ||
+                    (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Users can create their own purchases (via Cloud Function validation)
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+
+      // No updates or deletes allowed
+      allow update, delete: if false;
+    }
+
+    // Apparatus configuration - Admin only
+    match /apparatus/{apparatusId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Analytics - Admin only
+    match /analytics/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

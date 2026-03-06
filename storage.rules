@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null &&
+             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function hasValidPurchase(clipId) {
+      return firestore.exists(/databases/(default)/documents/purchases/$(request.auth.uid + '_' + clipId));
+    }
+
+    function isClipOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Raw video uploads from cameras - Admin/System only
+    match /raw/{allPaths=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Composed videos - User access with purchase validation
+    match /composed/{userId}/{clipId}/{fileName} {
+      // Users can read if they own the clip or have purchased it
+      allow read: if isSignedIn() &&
+                    (isClipOwner(userId) || hasValidPurchase(clipId) || isAdmin());
+
+      // Only system/admin can write
+      allow write: if isAdmin();
+    }
+
+    // Preview/watermarked videos - Any authenticated user
+    match /previews/{userId}/{clipId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Thumbnails - Any authenticated user
+    match /thumbnails/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // User profile images
+    match /profiles/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId &&
+                     request.resource.size < 5 * 1024 * 1024 && // 5MB limit
+                     request.resource.contentType.matches('image/.*');
+    }
+
+    // Camera snapshots for admin dashboard
+    match /camera-snapshots/{cameraId}/{fileName} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Apparatus QR codes
+    match /qr-codes/{apparatusId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Branding assets (logos, intros, outros)
+    match /branding/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
