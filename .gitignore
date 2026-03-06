@@ -58,8 +58,10 @@ Podfile.lock
 *.tmp
 *.temp
 /tmp/
-buffer/
-media/
+/buffer/
+/media/
+backend/ingestion/buffer/
+backend/ingestion/media/
 
 # Logs
 *.log
